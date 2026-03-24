@@ -32,13 +32,30 @@ class BaseAPI:
         """Fetch and attach image data to an entity dict."""
         entity["_art_data"] = self._get_image(entity.get("image_url"))
 
-    def _search(self, query: str, entity_type: str, limit: int = 20) -> list[dict]:
-        """Search for entities of a given type and return transformed results."""
+    def _search(self, query: str, entity_type: str, limit: int = 50) -> list[dict]:
+        """Search for entities of a given type, paginating to reach *limit*."""
         response_key, transform = _SEARCH_TYPES[entity_type]
-        data = self._get("/search", params={"q": query, "type": entity_type, "limit": limit})
-        if not data:
-            return []
-        return [transform(item) for item in data.get(response_key, {}).get("items", [])]
+        results: list[dict] = []
+        page_size = min(limit, 10)
+        offset = 0
+
+        while len(results) < limit:
+            data = self._get(
+                "/search",
+                params={"q": query, "type": entity_type, "limit": page_size, "offset": offset},
+            )
+            if not data:
+                break
+            items = data.get(response_key, {}).get("items", [])
+            if not items:
+                break
+            results.extend(transform(item) for item in items)
+            offset += len(items)
+            # Stop if Spotify returned fewer than requested (no more results)
+            if len(items) < page_size:
+                break
+
+        return results[:limit]
 
 
 class ArtistAPI(BaseAPI):
@@ -76,7 +93,7 @@ class ArtistAPI(BaseAPI):
             return []
         return [transform_track(t) for t in data.get("tracks", [])]
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
+    def search(self, query: str, limit: int = 50) -> list[dict]:
         """Search for artists by name."""
         return self._search(query, "artist", limit)
 
@@ -93,7 +110,7 @@ class AlbumAPI(BaseAPI):
         self._attach_image(album)
         return album
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
+    def search(self, query: str, limit: int = 50) -> list[dict]:
         """Search for albums by name."""
         return self._search(query, "album", limit)
 
@@ -110,7 +127,7 @@ class TrackAPI(BaseAPI):
         self._attach_image(track)
         return track
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
+    def search(self, query: str, limit: int = 50) -> list[dict]:
         """Search for tracks by name."""
         return self._search(query, "track", limit)
 

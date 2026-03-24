@@ -8,6 +8,9 @@ Usage::
     spotify --track "Black Years"  # search tracks only
     spotify --artist Summoning --json  # output as JSON
     spotify --artist Summoning --full  # non-interactive full output
+    spotify --genre "black metal"      # search artists by genre
+    spotify --genre "black metal" --year 2024  # genre + year filter
+    spotify --new                      # albums from the last two weeks
 """
 
 import argparse
@@ -39,6 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
             '  spotify --track "Black Years"  search tracks only\n'
             "  spotify --artist Summoning --json  output as JSON\n"
             "  spotify --artist Summoning --full  non-interactive full output\n"
+            '  spotify --genre "black metal"      search artists by genre\n'
+            '  spotify --genre "black metal" --year 2024  genre + year\n'
+            "  spotify --new                      recent albums\n"
+            "  spotify --new --hipster            recent low-popularity albums\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -57,6 +64,29 @@ def _build_parser() -> argparse.ArgumentParser:
             help=f"Search {entity}s (optionally by name)",
         )
 
+    # Search modifiers
+    parser.add_argument(
+        "--genre", type=str, metavar="GENRE",
+        help='Filter by genre (e.g. --genre "black metal")',
+    )
+    parser.add_argument(
+        "--year", type=str, metavar="YEAR",
+        help="Filter by year or range (e.g. --year 2026 or --year 2020-2026)",
+    )
+    parser.add_argument(
+        "--label", type=str, metavar="LABEL",
+        help='Filter albums by label (e.g. --label "Season of Mist")',
+    )
+    parser.add_argument(
+        "--new", action="store_true",
+        help="Show albums released in the last two weeks",
+    )
+    parser.add_argument(
+        "--hipster", action="store_true",
+        help="Show low-popularity albums",
+    )
+
+    # Output options
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
         "--full", action="store_true",
@@ -185,7 +215,30 @@ def main():
                 name_query = value
             break
 
-    query = name_query or args.query
+    query = name_query or args.query or ""
+
+    # Build query modifiers
+    parts = []
+    if args.genre:
+        parts.append(f'genre:"{args.genre}"')
+    if args.year:
+        parts.append(f"year:{args.year}")
+    if args.label:
+        parts.append(f'label:"{args.label}"')
+        if not entity_type:
+            entity_type = "album"
+    if args.new:
+        parts.append("tag:new")
+        if not entity_type:
+            entity_type = "album"
+    if args.hipster:
+        parts.append("tag:hipster")
+        if not entity_type:
+            entity_type = "album"
+
+    if parts:
+        query = " ".join([*parts, query]).strip()
+
     if not query:
         parser.error("Provide a search query or use --artist/--album/--track NAME.")
 

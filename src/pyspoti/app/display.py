@@ -81,12 +81,15 @@ def display_album_summary(d: dict) -> None:
 
 
 def display_album_header(d: dict) -> None:
+    popularity = d.get("popularity", 0)
     info = _info_grid(
         [
             ("Artist", d.get("artist", "")),
             ("Released", d.get("release_date", "")),
             ("Type", d.get("album_type", "")),
+            ("Label", d.get("label", "")),
             ("Tracks", str(d.get("total_tracks", ""))),
+            ("Popularity", _popularity_bar(popularity) if popularity else ""),
         ]
     )
 
@@ -105,13 +108,16 @@ def display_track_summary(d: dict) -> None:
 
 
 def display_track_header(d: dict) -> None:
+    popularity = d.get("popularity", 0)
+    disc = d.get("disc_number", 1)
     info = _info_grid(
         [
             ("Artist", d.get("artist", "")),
             ("Album", d.get("album", "")),
             ("Duration", d.get("duration", "")),
             ("Track", str(d.get("track_number", ""))),
-            ("Disc", str(d.get("disc_number", ""))),
+            ("Disc", str(disc) if disc and disc > 1 else ""),
+            ("Popularity", _popularity_bar(popularity) if popularity else ""),
         ]
     )
 

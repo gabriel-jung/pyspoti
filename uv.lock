@@ -244,18 +244,14 @@ wheels = [
 
 [[package]]
 name = "pyspoti"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "loguru" },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "rich" },
     { name = "urllib3" },
-]
-
-[package.optional-dependencies]
-dotenv = [
-    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -268,12 +264,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "python-dotenv", marker = "extra == 'dotenv'", specifier = ">=1.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "urllib3" },
 ]
-provides-extras = ["dotenv"]
 
 [package.metadata.requires-dev]
 dev = [

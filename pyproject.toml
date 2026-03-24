@@ -1,6 +1,6 @@
 [project]
 name = "pyspoti"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python library and CLI for Spotify data"
 readme = "README.md"
 authors = [
@@ -20,10 +20,8 @@ dependencies = [
     "loguru>=0.7.3",
     "rich>=14.0.0",
     "urllib3",
+    "python-dotenv>=1.0.0",
 ]
-
-[project.optional-dependencies]
-dotenv = ["python-dotenv>=1.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/gabriel-jung/pyspoti"
