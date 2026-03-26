@@ -1,5 +1,22 @@
 """Transform raw Spotify API JSON into clean, normalized dicts with ``_type`` keys."""
 
+_BASE_URL = "https://open.spotify.com"
+
+
+def artist_url(spotify_id: str) -> str:
+    """Build a Spotify artist URL from an ID."""
+    return f"{_BASE_URL}/artist/{spotify_id}"
+
+
+def album_url(spotify_id: str) -> str:
+    """Build a Spotify album URL from an ID."""
+    return f"{_BASE_URL}/album/{spotify_id}"
+
+
+def track_url(spotify_id: str) -> str:
+    """Build a Spotify track URL from an ID."""
+    return f"{_BASE_URL}/track/{spotify_id}"
+
 
 def _best_image(images: list[dict]) -> str | None:
     """Pick the best image URL from Spotify's images array (largest first)."""
@@ -29,7 +46,6 @@ def transform_artist(raw: dict) -> dict:
         "popularity": raw.get("popularity", 0),
         "followers": raw.get("followers", {}).get("total", 0),
         "image_url": _best_image(raw.get("images", [])),
-        "url": raw.get("external_urls", {}).get("spotify", ""),
     }
 
 
@@ -53,7 +69,6 @@ def transform_album(raw: dict) -> dict:
         "upc": raw.get("external_ids", {}).get("upc", ""),
         "release_date_precision": raw.get("release_date_precision", ""),
         "image_url": _best_image(raw.get("images", [])),
-        "url": raw.get("external_urls", {}).get("spotify", ""),
     }
 
     # Include tracks if present in the response (full album object)
@@ -91,5 +106,4 @@ def transform_track(raw: dict) -> dict:
         "isrc": raw.get("external_ids", {}).get("isrc", ""),
         "image_url": _best_image(album.get("images", [])),
         "preview_url": raw.get("preview_url"),
-        "url": raw.get("external_urls", {}).get("spotify", ""),
     }

@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from ..core import album_url, artist_url, track_url
 from .images import show_image_beside
 
 console = Console()
@@ -56,11 +57,13 @@ def display_artist_header(d: dict) -> None:
     followers = f"{d.get('followers', 0):,}"
     popularity = d.get("popularity", 0)
 
+    url = artist_url(d["id"])
     info = _info_grid(
         [
             ("Genres", genres),
             ("Popularity", _popularity_bar(popularity)),
             ("Followers", followers),
+            ("Link", f"[link={url}]{url}[/link]"),
         ]
     )
 
@@ -82,6 +85,7 @@ def display_album_summary(d: dict) -> None:
 
 def display_album_header(d: dict) -> None:
     popularity = d.get("popularity", 0)
+    url = album_url(d["id"])
     info = _info_grid(
         [
             ("Artist", d.get("artist", "")),
@@ -90,6 +94,7 @@ def display_album_header(d: dict) -> None:
             ("Label", d.get("label", "")),
             ("Tracks", str(d.get("total_tracks", ""))),
             ("Popularity", _popularity_bar(popularity) if popularity else ""),
+            ("Link", f"[link={url}]{url}[/link]"),
         ]
     )
 
@@ -110,6 +115,7 @@ def display_track_summary(d: dict) -> None:
 def display_track_header(d: dict) -> None:
     popularity = d.get("popularity", 0)
     disc = d.get("disc_number", 1)
+    url = track_url(d["id"])
     info = _info_grid(
         [
             ("Artist", d.get("artist", "")),
@@ -118,6 +124,7 @@ def display_track_header(d: dict) -> None:
             ("Track", str(d.get("track_number", ""))),
             ("Disc", str(disc) if disc and disc > 1 else ""),
             ("Popularity", _popularity_bar(popularity) if popularity else ""),
+            ("Link", f"[link={url}]{url}[/link]"),
         ]
     )
 

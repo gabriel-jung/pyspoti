@@ -11,6 +11,8 @@ from urllib3.util import Retry
 BASE_URL = "https://api.spotify.com/v1"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 
+REQUEST_TIMEOUT = 10  # seconds
+
 
 class NotFoundError(Exception):
     """Raised when a Spotify resource returns HTTP 404."""
@@ -24,18 +26,21 @@ class SpotifyClient:
         self._client_secret = client_secret
         self._token: str | None = None
         self._expires_at: float = 0
-        self._rate_limit_seconds = 0.1
+        self._rate_limit_seconds = 0.5
         self._last_request_time: float | None = None
         self._session = self._create_session()
         logger.debug("Spotify client initialized.")
 
     def _create_session(self) -> requests.Session:
-        """Configure requests.Session with retry strategy for 429 and 5xx errors."""
+        """Configure requests.Session with retry strategy for 5xx errors.
+
+        429 (rate limit) is handled manually to respect the Retry-After header.
+        """
         session = requests.Session()
         retry_strategy = Retry(
-            total=5,
-            backoff_factor=2,
-            status_forcelist=[429, 500, 502, 503, 504],
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504],
             allowed_methods=["GET", "POST"],
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -49,7 +54,9 @@ class SpotifyClient:
 
         logger.debug("Requesting new Spotify access token...")
         try:
-            response = self._session.post(TOKEN_URL, auth=auth, data=data)
+            response = self._session.post(
+                TOKEN_URL, auth=auth, data=data, timeout=REQUEST_TIMEOUT,
+            )
             response.raise_for_status()
             token_data = response.json()
             self._token = token_data["access_token"]
@@ -76,6 +83,9 @@ class SpotifyClient:
     def get(self, endpoint: str, params: dict | None = None) -> dict | None:
         """GET a Spotify API endpoint and return parsed JSON.
 
+        Handles 429 rate limits by respecting the ``Retry-After`` header,
+        retrying up to 3 times before giving up.
+
         Args:
             endpoint: Path relative to the base URL (e.g. ``/artists/123``).
             params: Optional query parameters.
@@ -87,26 +97,57 @@ class SpotifyClient:
             NotFoundError: If the resource returns 404.
         """
         self._ensure_valid_token()
-        self._enforce_rate_limit()
 
         url = f"{BASE_URL}{endpoint}" if endpoint.startswith("/") else f"{BASE_URL}/{endpoint}"
-        try:
-            response = self._session.get(url, params=params)
-            if response.status_code == 404:
-                raise NotFoundError(f"404 Not Found: {url}")
-            response.raise_for_status()
-            return response.json()
-        except NotFoundError:
-            raise
-        except Exception as e:
-            logger.error("Request failed for {}: {}", url, e)
-            return None
+
+        for attempt in range(4):  # 1 initial + 3 retries
+            self._enforce_rate_limit()
+            try:
+                response = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+
+                if response.status_code == 404:
+                    raise NotFoundError(f"404 Not Found: {url}")
+
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    logger.warning(
+                        "Rate limited (429). Retry-After: {}s (attempt {}/3)",
+                        retry_after, attempt + 1,
+                    )
+                    if retry_after > 60:
+                        logger.error(
+                            "Retry-After too long ({}s / {:.1f}h). Giving up.",
+                            retry_after, retry_after / 3600,
+                        )
+                        return None
+                    if attempt < 3:
+                        time.sleep(retry_after)
+                        continue
+                    logger.error("Rate limited after 3 retries: {}", url)
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+            except NotFoundError:
+                raise
+            except requests.exceptions.Timeout:
+                logger.warning("Request timed out for {} (attempt {}/3)", url, attempt + 1)
+                if attempt < 3:
+                    continue
+                logger.error("Timed out after 3 retries: {}", url)
+                return None
+            except Exception as e:
+                logger.error("Request failed for {}: {}", url, e)
+                return None
+
+        return None
 
     def get_bytes(self, url: str) -> bytes | None:
         """GET a full URL and return raw bytes (for images)."""
         self._enforce_rate_limit()
         try:
-            response = self._session.get(url)
+            response = self._session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             return response.content
         except Exception as e:
