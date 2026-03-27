@@ -7,6 +7,14 @@ menu-driven UI. Album covers display inline on supported terminals.
 
 ## Install
 
+Requires Python 3.12+.
+
+```bash
+uv tool install pyspoti
+# or
+pip install pyspoti
+```
+
 For local development:
 
 ```bash
@@ -15,15 +23,18 @@ cd pyspoti
 uv sync
 ```
 
-Requires a Spotify application with Client Credentials. Set the following
-environment variables (or use a `.env` file):
+Requires a Spotify application with Client Credentials. Add the following
+to your `~/.zshrc` or `~/.bashrc`:
 
 ```bash
 export SPOTIFY_CLIENT_ID="your_client_id"
 export SPOTIFY_CLIENT_SECRET="your_client_secret"
 ```
 
-## CLI
+Alternatively, place a `.env` file with the same variables in the directory
+where you run the command.
+
+## Usage
 
 ### Search
 
@@ -34,7 +45,15 @@ spotify --album "Minas Morgul"           # albums only
 spotify --track "Long Lost to Where"     # tracks only
 ```
 
-Results are paginated (10 per page). Use `n` / `p` to navigate pages.
+### Filters
+
+```bash
+spotify --genre "black metal"            # search by genre
+spotify --genre "black metal" --year 2024  # genre + year
+spotify --album --label "Season of Mist"   # albums by label
+spotify --new                            # albums from the last two weeks
+spotify --new --hipster                  # recent low-popularity albums
+```
 
 ### Interactive navigation
 
@@ -43,25 +62,17 @@ After selecting a result, you enter an interactive browser:
 - **Artists** — view top tracks, browse discography, select an album to see
   its tracklist, select a track to see details and navigate to its artist or
   album.
-- **Albums** — header with tracklist displayed inline, select a track or
-  navigate to the artist.
+- **Albums** — header with tracklist, select a track or navigate to the artist.
 - **Tracks** — header with details, navigate to artist or album.
 
 Press `0` to go back, `Ctrl+C` to quit.
 
-### JSON output
+### Output modes
 
 ```bash
-spotify --artist Summoning --json
-spotify --album "Minas Morgul" --json
-```
-
-### Other options
-
-```bash
-spotify -v ...                           # enable debug logging
-spotify --version                        # version check
-spotify --help                           # help text
+spotify --artist Summoning --json   # output as JSON
+spotify --artist Summoning --full   # all sections at once, no interaction
+spotify -v ...                      # enable debug logging
 ```
 
 ### Terminal images
@@ -71,34 +82,34 @@ iTerm2 or Kitty image protocol (iTerm2, Kitty, WezTerm, Mintty).
 
 ## Library
 
+The `core` module has no terminal dependencies — use it in scripts,
+pipelines, or other tools. All data is returned as plain dicts with a
+`_type` discriminator key.
+
 ```python
 from pyspoti.core import SpotifyClient, ArtistAPI, AlbumAPI, TrackAPI, SearchAPI
 
 with SpotifyClient(client_id, client_secret) as client:
-    # Search
+    # search
     artists = ArtistAPI(client).search("Summoning")
     albums = AlbumAPI(client).search("Minas Morgul")
     tracks = TrackAPI(client).search("Long Lost to Where")
 
-    # Cross-type search
+    # cross-type search
     results = SearchAPI(client).search("Summoning")
     # → {"artists": [...], "albums": [...], "tracks": [...]}
 
-    # Fetch full details
+    # fetch full details
     artist = ArtistAPI(client).get(artists[0]["id"])
     top_tracks = ArtistAPI(client).get_top_tracks(artist["id"])
     discography = ArtistAPI(client).get_albums(artist["id"])
 
     album = AlbumAPI(client).get(discography[0]["id"])
-    for track in album["tracks"]:
-        print(f"  {track['track_number']}. {track['name']} ({track['duration']})")
-
     track = TrackAPI(client).get(top_tracks[0]["id"])
-```
 
-All data is returned as plain dicts with a `_type` discriminator key.
-The `core` module has no terminal dependencies — use it in scripts,
-pipelines, or other tools.
+    # download images
+    client.download_image(artist["image_url"], output_dir="./images/")
+```
 
 ## License
 

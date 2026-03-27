@@ -79,7 +79,7 @@ class ArtistAPI(BaseAPI):
             data = self._get(f"/artists/{artist_id}/albums", params=params)
             if not data:
                 break
-            results.extend(transform_album(a) for a in data.get("items", []))
+            results.extend(transform_album(item) for item in data.get("items", []))
             if not data.get("next") or len(results) >= limit:
                 break
             params["offset"] = len(results)
@@ -91,7 +91,7 @@ class ArtistAPI(BaseAPI):
         data = self._get(f"/artists/{artist_id}/top-tracks")
         if not data:
             return []
-        return [transform_track(t) for t in data.get("tracks", [])]
+        return [transform_track(item) for item in data.get("tracks", [])]
 
     def search(self, query: str, limit: int = 50) -> list[dict]:
         """Search for artists by name."""

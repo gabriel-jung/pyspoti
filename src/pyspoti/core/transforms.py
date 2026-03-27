@@ -74,7 +74,7 @@ def transform_album(raw: dict) -> dict:
     # Include tracks if present in the response (full album object)
     tracks_data = raw.get("tracks", {})
     if tracks_data and tracks_data.get("items"):
-        album["tracks"] = [transform_track(t) for t in tracks_data["items"]]
+        album["tracks"] = [transform_track(item) for item in tracks_data["items"]]
 
     return album
 

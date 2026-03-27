@@ -1,32 +1,210 @@
 """CLI entry point for spotify -- an interactive Spotify browser.
 
-Usage::
-
-    spotify Summoning              # search all categories
-    spotify --artist Summoning     # search artists only
-    spotify --album "Minas Morgul" # search albums only
-    spotify --track "Black Years"  # search tracks only
-    spotify --artist Summoning --json  # output as JSON
-    spotify --artist Summoning --full  # non-interactive full output
-    spotify --genre "black metal"      # search artists by genre
-    spotify --genre "black metal" --year 2024  # genre + year filter
-    spotify --new                      # albums from the last two weeks
+Run ``spotify --help`` for usage examples.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import os
 import sys
 
-from loguru import logger
+from importlib.metadata import version
 
-from .. import __version__
+__version__ = version("pyspoti")
 
+from rich_metadata import (
+    BaseNavigator,
+    DisplayEngine,
+    EntityDef,
+    HeaderField,
+    HeaderLink,
+    QuitSignal,
+    SectionDef,
+    SummaryField,
+    TableColumn,
+    configure_logging,
+    resolve_entity_type,
+    strip_internal_keys,
+)
+
+from ..core.api import AlbumAPI, ArtistAPI, SearchAPI, TrackAPI
 from ..core.client import SpotifyClient
-from .display import ENTITY_SECTIONS, _print_tracklist, console, display_header, display_section, select_from_list
-from .navigator import LAZY_FETCHERS, Navigator, _QuitSignal
+from ..core.transforms import album_url, artist_url, track_url
+
+# ─── Display transforms ──────────────────────────────────────────────────────
 
 ENTITY_TYPES = ["artist", "album", "track"]
+
+
+def _popularity_bar(score: int, width: int = 20) -> str:
+    """Render a popularity score as a colored bar."""
+    if not score:
+        return ""
+    filled = round(score / 100 * width)
+    empty = width - filled
+    if score >= 70:
+        color = "green"
+    elif score >= 40:
+        color = "yellow"
+    else:
+        color = "red"
+    return f"[{color}]{'█' * filled}[/{color}][dim]{'░' * empty}[/dim] {score}"
+
+
+def _join_genres(genres) -> str:
+    """Join a list of genre strings with commas."""
+    return ", ".join(genres) if genres else ""
+
+
+def _short_genres(genres) -> str:
+    """Join up to 3 genres for summary display."""
+    return ", ".join(genres[:3]) if genres else "Unknown"
+
+
+def _format_followers(count) -> str:
+    """Format followers count with commas."""
+    return f"{count:,}" if count else ""
+
+
+def _artist_link(entity: dict) -> str:
+    """Build a clickable artist URL."""
+    url = artist_url(entity["id"])
+    return f"[link={url}]{url}[/link]"
+
+
+def _album_link(entity: dict) -> str:
+    """Build a clickable album URL."""
+    url = album_url(entity["id"])
+    return f"[link={url}]{url}[/link]"
+
+
+def _track_link(entity: dict) -> str:
+    """Build a clickable track URL."""
+    url = track_url(entity["id"])
+    return f"[link={url}]{url}[/link]"
+
+
+def _disc_number(entity: dict) -> str:
+    """Show disc number only if > 1."""
+    disc = entity.get("disc_number", 1)
+    return str(disc) if disc and disc > 1 else ""
+
+
+# ─── Entity definitions ──────────────────────────────────────────────────────
+
+_TRACK_COLUMNS = [
+    TableColumn("Title", "name", style="bold"),
+    TableColumn("Artist", "artist", style="dim"),
+    TableColumn("Duration", "duration", justify="right"),
+]
+
+artist_def = EntityDef(
+    type_name="artist",
+    summary=[
+        SummaryField(key="name", style="bold"),
+        SummaryField(key="genres", style="dim", transform=_short_genres, fallback="Unknown"),
+    ],
+    header_fields=[
+        HeaderField("Genres", key="genres", transform=_join_genres),
+        HeaderField("Popularity", key="popularity", transform=_popularity_bar),
+        HeaderField("Followers", key="followers", transform=_format_followers),
+        HeaderField("Link", transform=_artist_link),
+    ],
+    header_image_key="_art_data",
+    panel_border_style="cyan",
+    sections=[
+        SectionDef(
+            "top_tracks", label="Top Tracks", lazy=True, navigable=True,
+            numbered=False, duration_key="duration",
+            columns=[
+                TableColumn("#", "track_number", style="dim", width=4, justify="right"),
+                *_TRACK_COLUMNS,
+            ],
+        ),
+        SectionDef(
+            "albums", lazy=True, navigable=True,
+            columns=[
+                TableColumn("Title", "name", style="bold"),
+                TableColumn("Type", "album_type", style="dim"),
+                TableColumn("Released", "release_date", style="dim"),
+                TableColumn("Tracks", "total_tracks", style="dim", justify="right"),
+            ],
+        ),
+    ],
+)
+
+album_def = EntityDef(
+    type_name="album",
+    summary=[
+        SummaryField(key="album_type", style="dim", fallback="album"),
+        SummaryField(key="name", style="bold"),
+        SummaryField(key="artist", style="dim", fallback="Unknown"),
+        SummaryField(key="release_date"),
+    ],
+    header_fields=[
+        HeaderField("Artist", key="artist"),
+        HeaderField("Released", key="release_date"),
+        HeaderField("Type", key="album_type"),
+        HeaderField("Label", key="label"),
+        HeaderField("Tracks", key="total_tracks", transform=lambda v: str(v) if v else ""),
+        HeaderField("Popularity", key="popularity", transform=_popularity_bar),
+        HeaderField("Link", transform=_album_link),
+    ],
+    header_image_key="_art_data",
+    panel_border_style="green",
+    sections=[
+        SectionDef(
+            "tracks", navigable=True, numbered=False, duration_key="duration",
+            columns=[
+                TableColumn("#", "track_number", style="dim", width=4, justify="right"),
+                *_TRACK_COLUMNS,
+            ],
+        ),
+    ],
+    header_links=[
+        HeaderLink("Artist: {artist}", "artist", ref_key="artist_id"),
+    ],
+)
+
+track_def = EntityDef(
+    type_name="track",
+    summary=[
+        SummaryField(key="name", style="bold"),
+        SummaryField(key="artist", style="dim", fallback="Unknown"),
+        SummaryField(key="duration"),
+    ],
+    header_fields=[
+        HeaderField("Artist", key="artist"),
+        HeaderField("Album", key="album"),
+        HeaderField("Duration", key="duration"),
+        HeaderField("Track", key="track_number", transform=lambda v: str(v) if v else ""),
+        HeaderField("Disc", transform=_disc_number),
+        HeaderField("Popularity", key="popularity", transform=_popularity_bar),
+        HeaderField("Link", transform=_track_link),
+    ],
+    header_image_key="_art_data",
+    panel_border_style="magenta",
+    header_links=[
+        HeaderLink("Artist: {artist}", "artist", ref_key="artist_id"),
+        HeaderLink("Album: {album}", "album", ref_key="album_id"),
+    ],
+)
+
+# ─── Engine & navigator setup ────────────────────────────────────────────────
+
+engine = DisplayEngine()
+engine.register(artist_def, album_def, track_def)
+console = engine.console
+
+LAZY_FETCHERS = {
+    ("artist", "top_tracks"): lambda api, entity: api.get_top_tracks(entity["id"]),
+    ("artist", "albums"): lambda api, entity: api.get_albums(entity["id"]),
+}
+
+
+# ─── Parser ──────────────────────────────────────────────────────────────────
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -52,60 +230,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("query", nargs="?", type=str, help="Search all categories")
 
-    # Entity type selectors -- mutually exclusive with each other
     entity_group = parser.add_mutually_exclusive_group()
     for entity in ENTITY_TYPES:
         entity_group.add_argument(
-            f"--{entity}",
-            nargs="?",
-            const=True,
-            default=None,
-            metavar="NAME",
-            help=f"Search {entity}s (optionally by name)",
+            f"--{entity}", nargs="?", const=True, default=None,
+            metavar="NAME", help=f"Search {entity}s (optionally by name)",
         )
 
-    # Search modifiers
-    parser.add_argument(
-        "--genre", type=str, metavar="GENRE",
-        help='Filter by genre (e.g. --genre "black metal")',
-    )
-    parser.add_argument(
-        "--year", type=str, metavar="YEAR",
-        help="Filter by year or range (e.g. --year 2026 or --year 2020-2026)",
-    )
-    parser.add_argument(
-        "--label", type=str, metavar="LABEL",
-        help='Filter albums by label (e.g. --label "Season of Mist")',
-    )
-    parser.add_argument(
-        "--new", action="store_true",
-        help="Show albums released in the last two weeks",
-    )
-    parser.add_argument(
-        "--hipster", action="store_true",
-        help="Show low-popularity albums",
-    )
-
-    # Output options
+    parser.add_argument("--genre", type=str, metavar="GENRE", help='Filter by genre')
+    parser.add_argument("--year", type=str, metavar="YEAR", help="Filter by year or range")
+    parser.add_argument("--label", type=str, metavar="LABEL", help="Filter albums by label")
+    parser.add_argument("--new", action="store_true", help="Show albums released in the last two weeks")
+    parser.add_argument("--hipster", action="store_true", help="Show low-popularity albums")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument(
-        "--full", action="store_true",
-        help="Non-interactive: show header and all sections, then exit",
-    )
+    parser.add_argument("--full", action="store_true", help="Non-interactive: show header and all sections, then exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show debug logs")
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     return parser
 
 
+# ─── Credentials ─────────────────────────────────────────────────────────────
+
+
 def _get_credentials() -> tuple[str, str]:
     """Read Spotify credentials from environment variables."""
-    # Try python-dotenv if available
     try:
         from dotenv import load_dotenv
-
         load_dotenv()
     except ImportError:
         pass
@@ -123,43 +274,19 @@ def _get_credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
-def _display_full(navigator: Navigator, entity: dict) -> None:
-    """Non-interactive display: header + all sections, then exit."""
-    display_header(entity)
-
-    entity_type = entity["_type"]
-    sections = ENTITY_SECTIONS.get(entity_type, [])
-
-    for key, label, _fn in sections:
-        # Lazy fetch if needed
-        if key not in entity and (entity_type, key) in LAZY_FETCHERS:
-            api = navigator.apis[entity_type]
-            with console.status(f"Fetching {label}..."):
-                entity[key] = LAZY_FETCHERS[(entity_type, key)](api, entity)
-        display_section(entity, key)
-
-    # Albums: show tracklist inline
-    if entity_type == "album" and entity.get("tracks"):
-        _print_tracklist(entity["tracks"])
+# ─── Search ──────────────────────────────────────────────────────────────────
 
 
-def _run_search(
-    navigator: Navigator,
-    query: str,
-    entity_type: str | None,
-    args: argparse.Namespace,
-) -> None:
+def _run_search(navigator, query, entity_type, args):
     """Execute a search and handle results."""
     if entity_type:
         api = navigator.apis[entity_type]
         with console.status(f"Searching {entity_type}s..."):
             results = api.search(query)
     else:
-        # Search all types
         search_api = navigator.apis["search"]
         with console.status("Searching..."):
             all_results = search_api.search(query)
-        # Merge results, artists first
         results = all_results["artists"] + all_results["albums"] + all_results["tracks"]
 
     if not results:
@@ -167,29 +294,25 @@ def _run_search(
         return
 
     if args.json:
-        # Strip binary art data for JSON output
-        clean = [{k: v for k, v in r.items() if k != "_art_data"} for r in results]
-        console.print_json(json.dumps(clean, indent=2))
+        print(json.dumps(strip_internal_keys(results), indent=2))
         return
 
     if args.full:
-        # Non-interactive: show first result's header + all sections
         selected = results[0]
     else:
-        selected = select_from_list(results, title=f'Search: "{query}"')
+        selected = engine.select_from_list(results, title=f'Search: "{query}"')
     if not selected:
         return
 
-    # Fetch full details
-    full = navigator.fetch(selected["_type"], selected["id"])
-    if not full:
+    entity = navigator.fetch_entity(selected["_type"], selected["id"])
+    if not entity:
         console.print("[red]Could not fetch details.[/red]")
         return
 
-    if args.full:
-        _display_full(navigator, full)
-    else:
-        navigator.navigate(full)
+    navigator.display_or_navigate(entity, json_output=args.json, full=args.full)
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 
 def main():
@@ -197,27 +320,12 @@ def main():
     parser = _build_parser()
     args = parser.parse_args()
 
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level="DEBUG" if args.verbose else "WARNING",
-    )
-
-    # Determine entity type and query
-    entity_type = None
-    name_query = None
-    for t in ENTITY_TYPES:
-        value = getattr(args, t, None)
-        if value is not None:
-            entity_type = t
-            if value is not True:
-                name_query = value
-            break
+    configure_logging(args.verbose)
+    entity_type, name_query = resolve_entity_type(args, ENTITY_TYPES)
 
     query = name_query or args.query or ""
 
-    # Build query modifiers
+    # Build Spotify query modifiers
     parts = []
     if args.genre:
         parts.append(f'genre:"{args.genre}"')
@@ -245,10 +353,19 @@ def main():
     client_id, client_secret = _get_credentials()
 
     with SpotifyClient(client_id, client_secret) as client:
-        navigator = Navigator(client)
+        navigator = _make_navigator(client)
         try:
             _run_search(navigator, query, entity_type, args)
-        except _QuitSignal:
-            console.print("[dim]Goodbye.[/dim]")
-        except KeyboardInterrupt:
-            console.print("\n[dim]Goodbye.[/dim]")
+        except (QuitSignal, KeyboardInterrupt):
+            pass
+
+
+def _make_navigator(client: SpotifyClient) -> BaseNavigator:
+    """Create a navigator wired to all Spotify APIs."""
+    apis = {
+        "artist": ArtistAPI(client),
+        "album": AlbumAPI(client),
+        "track": TrackAPI(client),
+        "search": SearchAPI(client),
+    }
+    return BaseNavigator(engine, apis=apis, entity_ref_key="id", lazy_fetchers=LAZY_FETCHERS)
