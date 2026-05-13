@@ -25,6 +25,7 @@ from rich_metadata import (
     SummaryField,
     TableColumn,
     configure_logging,
+    links_line,
     resolve_entity_type,
     strip_internal_keys,
 )
@@ -68,24 +69,6 @@ def _format_followers(count) -> str:
     return f"{count:,}" if count else ""
 
 
-def _artist_link(entity: dict) -> str:
-    """Build a clickable artist URL."""
-    url = artist_url(entity["id"])
-    return f"[link={url}]{url}[/link]"
-
-
-def _album_link(entity: dict) -> str:
-    """Build a clickable album URL."""
-    url = album_url(entity["id"])
-    return f"[link={url}]{url}[/link]"
-
-
-def _track_link(entity: dict) -> str:
-    """Build a clickable track URL."""
-    url = track_url(entity["id"])
-    return f"[link={url}]{url}[/link]"
-
-
 def _disc_number(entity: dict) -> str:
     """Show disc number only if > 1."""
     disc = entity.get("disc_number", 1)
@@ -110,10 +93,15 @@ artist_def = EntityDef(
         HeaderField("Genres", key="genres", transform=_join_genres),
         HeaderField("Popularity", key="popularity", transform=_popularity_bar),
         HeaderField("Followers", key="followers", transform=_format_followers),
-        HeaderField("Link", transform=_artist_link),
     ],
     header_image_key="_art_data",
     panel_border_style="cyan",
+    footer=[
+        lambda d: links_line(
+            ("page", artist_url(d["id"])),
+            ("photo", d.get("image_url")),
+        ),
+    ],
     sections=[
         SectionDef(
             "top_tracks", label="Top Tracks", lazy=True, navigable=True,
@@ -150,7 +138,6 @@ album_def = EntityDef(
         HeaderField("Label", key="label"),
         HeaderField("Tracks", key="total_tracks", transform=lambda v: str(v) if v else ""),
         HeaderField("Popularity", key="popularity", transform=_popularity_bar),
-        HeaderField("Link", transform=_album_link),
     ],
     header_image_key="_art_data",
     panel_border_style="green",
@@ -165,6 +152,12 @@ album_def = EntityDef(
     ],
     header_links=[
         HeaderLink("Artist: {artist}", "artist", ref_key="artist_id"),
+    ],
+    footer=[
+        lambda d: links_line(
+            ("page", album_url(d["id"])),
+            ("cover", d.get("image_url")),
+        ),
     ],
 )
 
@@ -182,13 +175,15 @@ track_def = EntityDef(
         HeaderField("Track", key="track_number", transform=lambda v: str(v) if v else ""),
         HeaderField("Disc", transform=_disc_number),
         HeaderField("Popularity", key="popularity", transform=_popularity_bar),
-        HeaderField("Link", transform=_track_link),
     ],
     header_image_key="_art_data",
     panel_border_style="magenta",
     header_links=[
         HeaderLink("Artist: {artist}", "artist", ref_key="artist_id"),
         HeaderLink("Album: {album}", "album", ref_key="album_id"),
+    ],
+    footer=[
+        lambda d: links_line(("page", track_url(d["id"]))),
     ],
 )
 
