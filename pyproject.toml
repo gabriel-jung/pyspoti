@@ -5,7 +5,7 @@ build-backend = "uv_build"
 
 [project]
 name = "pyspoti"
-version = "0.3.0"
+version = "0.3.1"
 description = "Python library and CLI for Spotify data"
 readme = "README.md"
 authors = [
