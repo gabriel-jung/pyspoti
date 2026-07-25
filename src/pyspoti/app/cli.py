@@ -6,10 +6,10 @@ Run ``spotify --help`` for usage examples.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
-
 from importlib.metadata import version
 
 __version__ = version("pyspoti")
@@ -238,7 +238,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--new", action="store_true", help="Show albums released in the last two weeks")
     parser.add_argument("--hipster", action="store_true", help="Show low-popularity albums")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--full", action="store_true", help="Non-interactive: show header and all sections, then exit")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Non-interactive: show header and all sections, then exit",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Show debug logs")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
@@ -292,10 +296,7 @@ def _run_search(navigator, query, entity_type, args):
         print(json.dumps(strip_internal_keys(results), indent=2))
         return
 
-    if args.full:
-        selected = results[0]
-    else:
-        selected = engine.select_from_list(results, title=f'Search: "{query}"')
+    selected = results[0] if args.full else engine.select_from_list(results, title=f'Search: "{query}"')
     if not selected:
         return
 
@@ -349,10 +350,8 @@ def main():
 
     with SpotifyClient(client_id, client_secret) as client:
         navigator = _make_navigator(client)
-        try:
+        with contextlib.suppress(QuitSignal, KeyboardInterrupt):
             _run_search(navigator, query, entity_type, args)
-        except (QuitSignal, KeyboardInterrupt):
-            pass
 
 
 def _make_navigator(client: SpotifyClient) -> BaseNavigator:
